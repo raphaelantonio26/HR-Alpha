@@ -1,0 +1,49 @@
+# HR OS local stack. App + Postgres 16 (RLS) + Redis (jobs/rate-limit) + MinIO (S3).
+# Not for production as-is; see docs/DEPLOY.md for the hardened topology.
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: hros
+      POSTGRES_PASSWORD: hros
+      POSTGRES_DB: hros
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hros"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: hros
+      MINIO_ROOT_PASSWORD: hros-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["miniodata:/data"]
+
+  server:
+    build: { context: .., dockerfile: infra/Dockerfile.server }
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      # The app connects as the NON-superuser role so RLS (FORCE) + the audit_log
+      # REVOKE bind. Create it once before first migrate (see RUN.md):
+      #   CREATE ROLE hros_app LOGIN PASSWORD 'hros_app' NOSUPERUSER NOBYPASSRLS;
+      DATABASE_URL: postgresql://hros_app:hros_app@postgres:5432/hros?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports: ["8080:8080"]
+
+volumes:
+  pgdata:
+  miniodata:

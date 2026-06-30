@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/build
+**/.turbo
+**/*.tsbuildinfo
+**/coverage
+.git
+.github
+*.md
+docs
+pgdata
+**/.env
+**/.env.*
+**/.DS_Store

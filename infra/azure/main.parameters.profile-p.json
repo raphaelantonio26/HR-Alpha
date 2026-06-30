@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "_comment": "Profile P = production/SSO. Secrets are pulled from a PRE-EXISTING bootstrap Key Vault via reference (never committed). Replace <SUB_ID>/<RG>/<BOOTSTRAP_KV> and the Entra/SCIM values, then: az deployment group create -g <RG> -f infra/azure/main.bicep -p @infra/azure/main.parameters.profile-p.json",
+  "parameters": {
+    "profile": { "value": "P" },
+    "namePrefix": { "value": "hros" },
+    "pgAdminLogin": { "value": "hrosadmin" },
+    "appDbUser": { "value": "hros_app" },
+    "databaseName": { "value": "hros" },
+    "pgSkuName": { "value": "Standard_D2ds_v5" },
+    "pgSkuTier": { "value": "GeneralPurpose" },
+    "pgStorageGB": { "value": 64 },
+    "oidcIssuer": { "value": "https://login.microsoftonline.com/<ENTRA_TENANT_GUID>/v2.0" },
+    "oidcAudience": { "value": "api://<HR_OS_APP_CLIENT_ID>" },
+    "scimEnabled": { "value": true },
+    "scimTenantId": { "value": "<HR_OS_APPLICATION_TENANT_ID>" },
+    "demoAllowLiveAi": { "value": false },
+    "deployFrontDoor": { "value": true },
+    "frontDoorSku": { "value": "Premium_AzureFrontDoor" },
+    "apiMinReplicas": { "value": 1 },
+    "apiMaxReplicas": { "value": 10 },
+
+    "pgAdminPassword": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hros-pg-admin-password"
+      }
+    },
+    "appDbPassword": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hros-app-db-password"
+      }
+    },
+    "jwtSecret": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hros-jwt-secret"
+      }
+    },
+    "scimToken": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hros-scim-token"
+      }
+    },
+    "anthropicApiKey": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hros-anthropic-api-key"
+      }
+    }
+  }
+}
