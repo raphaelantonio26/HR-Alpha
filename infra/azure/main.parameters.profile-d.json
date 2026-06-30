@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "_comment": "Profile D = demo/no-SSO. No OIDC, no SCIM, AI defaults to the labeled fallback (anthropicApiKey omitted; boot REFUSES a key in demo unless demoAllowLiveAi=true). Scales to zero. Secrets via a PRE-EXISTING bootstrap Key Vault. The fail-closed guard in config.assertProfileSafety() refuses to start if any production marker (OIDC/SCIM/PROD_DATA_PLANE) is present here.",
+  "parameters": {
+    "profile": { "value": "D" },
+    "namePrefix": { "value": "hrosdemo" },
+    "pgAdminLogin": { "value": "hrosadmin" },
+    "appDbUser": { "value": "hros_app" },
+    "databaseName": { "value": "hros" },
+    "pgSkuName": { "value": "Standard_B1ms" },
+    "pgSkuTier": { "value": "Burstable" },
+    "pgStorageGB": { "value": 32 },
+    "oidcIssuer": { "value": "" },
+    "oidcAudience": { "value": "" },
+    "scimEnabled": { "value": false },
+    "scimTenantId": { "value": "" },
+    "demoAllowLiveAi": { "value": false },
+    "deployFrontDoor": { "value": false },
+    "apiMinReplicas": { "value": 0 },
+    "apiMaxReplicas": { "value": 2 },
+
+    "pgAdminPassword": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hrosdemo-pg-admin-password"
+      }
+    },
+    "appDbPassword": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hrosdemo-app-db-password"
+      }
+    },
+    "jwtSecret": {
+      "reference": {
+        "keyVault": { "id": "/subscriptions/<SUB_ID>/resourceGroups/<RG>/providers/Microsoft.KeyVault/vaults/<BOOTSTRAP_KV>" },
+        "secretName": "hrosdemo-jwt-secret"
+      }
+    }
+  }
+}

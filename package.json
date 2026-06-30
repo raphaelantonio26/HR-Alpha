@@ -1,0 +1,28 @@
+{
+  "name": "hr-os",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HR OS — a single, multi-tenant, HRIS-agnostic enterprise HR platform. One design language, one data layer, one access model, one audit trail.",
+  "workspaces": [
+    "packages/contracts",
+    "packages/core",
+    "packages/connectors",
+    "packages/server",
+    "packages/web"
+  ],
+  "scripts": {
+    "build": "npm run build -ws --if-present",
+    "typecheck": "npm run typecheck -ws --if-present",
+    "test": "npm run test -ws --if-present",
+    "test:core": "npm run test -w @hr-os/core",
+    "lint": "npm run lint -ws --if-present",
+    "dev": "npm run dev -w @hr-os/web",
+    "seed": "tsx infra/seed.ts",
+    "reseed": "tsx infra/reseed.ts"
+  },
+  "engines": { "node": ">=20" },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "tsx": "^4.16.2"
+  }
+}

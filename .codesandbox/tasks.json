@@ -1,0 +1,25 @@
+{
+  "$schema": "https://codesandbox.io/schemas/tasks.json",
+  "//": "Importing this repo as a CodeSandbox VM Sandbox auto-runs the steps below. Use a VM Sandbox (microVM with Docker), NOT the browser sandbox - the browser sandbox cannot run Postgres.",
+  "setupTasks": [
+    { "name": "Install dependencies", "command": "npm install" },
+    { "name": "Database: start + migrate + seed", "command": "bash .codesandbox/setup.sh" }
+  ],
+  "tasks": {
+    "setup-db": {
+      "name": "Re-run database setup",
+      "command": "bash .codesandbox/setup.sh"
+    },
+    "api": {
+      "name": "API (demo, no SSO)",
+      "command": "DATABASE_URL=postgresql://hros_app:hros_app@localhost:5432/hros NODE_ENV=development DEMO_MODE=true JWT_SECRET=dev-only-demo-secret npm run dev -w @hr-os/server",
+      "runAtStart": true
+    },
+    "web": {
+      "name": "Web (demo front door)",
+      "command": "VITE_DEMO_MODE=true VITE_API_URL=/api npm run dev -w @hr-os/web",
+      "runAtStart": true,
+      "preview": { "port": 5173 }
+    }
+  }
+}

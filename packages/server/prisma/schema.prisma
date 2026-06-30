@@ -1,0 +1,161 @@
+// HR OS data model (Prisma + Postgres 16). Tenant isolation is enforced by
+// row-level security in the migration, not here. Every table carries tenant_id.
+// The audit_log is append-only (UPDATE/DELETE revoked) and written by a DB
+// trigger on every mutation. Migrations are additive and idempotent (§3.7).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("tenant")
+}
+
+model Worksite {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  name          String
+  city          String
+  state         String
+  jurisdictions String[] // e.g. {US-FED, US-CA}
+
+  @@index([tenantId])
+  @@map("worksite")
+}
+
+model OrgUnit {
+  id       String  @id @default(uuid())
+  tenantId String  @map("tenant_id")
+  name     String
+  kind     String // business_unit | trade_line | department
+  parentId String? @map("parent_id")
+
+  @@index([tenantId])
+  @@map("org_unit")
+}
+
+model Position {
+  id        String  @id @default(uuid())
+  tenantId  String  @map("tenant_id")
+  title     String
+  titleKey  String  @map("title_key")
+  flsa      String // exempt | non_exempt
+  socCode   String? @map("soc_code")
+  adpJobCode String? @map("adp_job_code")
+  orgUnitId String? @map("org_unit_id")
+
+  @@index([tenantId])
+  @@index([tenantId, titleKey])
+  @@map("position")
+}
+
+model Worker {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  fileNumber     String   @map("file_number") // TEXT — preserves leading zeros
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  status         String
+  worksiteId     String   @map("worksite_id")
+  positionId     String   @map("position_id")
+  managerId      String?  @map("manager_id")
+  employmentType String   @map("employment_type") // union | open_shop
+  hireDate       DateTime @map("hire_date") @db.Date
+  hoursPerWeek   Float?   @map("hours_per_week")
+
+  @@unique([tenantId, fileNumber])
+  @@index([tenantId])
+  @@index([tenantId, managerId])
+  @@map("worker")
+}
+
+model CompensationRecord {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  workerId       String   @map("worker_id")
+  amount         Decimal  @db.Decimal(12, 2)
+  unit           String // hourly | annual
+  effectiveDate  DateTime @map("effective_date") @db.Date
+  hoursWorked12mo Float?  @map("hours_worked_12mo")
+
+  @@index([tenantId, workerId])
+  @@map("compensation_record")
+}
+
+model LeaveCase {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  workerId     String    @map("worker_id")
+  reasonId     String    @map("reason_id")
+  designation  String[] // NULL/empty => await-designation
+  status       String    @default("intake") // intake | open | closed
+  startDate    DateTime? @map("start_date") @db.Date
+  endDate      DateTime? @map("end_date") @db.Date
+  intermittent Boolean   @default(false)
+  priority     String    @default("Medium")
+  jurisdiction String    @default("US-CA")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, workerId])
+  @@index([tenantId, status])
+  @@map("leave_case")
+}
+
+model PayBand {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  titleKey   String   @map("title_key")
+  unit       String // hourly | annual
+  p10        Decimal? @db.Decimal(12, 2)
+  p25        Decimal? @db.Decimal(12, 2)
+  p50        Decimal? @db.Decimal(12, 2)
+  p75        Decimal? @db.Decimal(12, 2)
+  p90        Decimal? @db.Decimal(12, 2)
+  confidence Int?
+  locked     Boolean  @default(false)
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  @@unique([tenantId, titleKey])
+  @@map("pay_band")
+}
+
+model AuditLog {
+  id       String   @id @default(uuid())
+  tenantId String?  @map("tenant_id")
+  actorId  String?  @map("actor_id")
+  entity   String
+  entityId String   @map("entity_id")
+  action   String
+  detail   Json?
+  at       DateTime @default(now())
+
+  @@index([tenantId, at])
+  @@index([entity, entityId])
+  @@map("audit_log")
+}
+
+// SSO/SCIM-provisioned platform identity (distinct from Worker, the HR employee
+// record). Tenant-scoped, RLS-FORCED, audited. Authoritative SQL: 0001_init.
+model AppUser {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  externalId String   @map("external_id")
+  userName   String   @map("user_name")
+  role       String   @default("employee")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId])
+  @@map("app_user")
+}

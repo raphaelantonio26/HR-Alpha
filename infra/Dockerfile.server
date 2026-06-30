@@ -1,0 +1,72 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# HR OS API (Fastify) - multi-stage, non-root, slim runtime.
+#
+# Runtime note (deliberate, see docs/adr/0002): the @hr-os/* workspace packages
+# publish TypeScript source via their "exports" map (./src/index.ts), and the
+# proven executor for that graph is `tsx` (the same one RUN.md/dev use). So the
+# build stage COMPILES the server as a hard quality gate (the image fails to
+# build if types are broken), and the runtime stage runs the server through tsx
+# from source. This keeps the image faithful to the proven path without
+# rewriting every package's export map to dist.
+#   TODO(fable5): if you want to drop tsx from the runtime, compile every
+#   workspace package to dist and repoint each package.json "exports" to the
+#   compiled entrypoint, then `CMD ["node","packages/server/dist/index.js"]`.
+# ---------------------------------------------------------------------------
+
+# ---- Stage 1: install all deps (incl. dev) for building -------------------
+FROM node:22-slim AS deps
+WORKDIR /app
+ENV NPM_CONFIG_FUND=false NPM_CONFIG_AUDIT=false
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/core/package.json       packages/core/package.json
+COPY packages/connectors/package.json packages/connectors/package.json
+COPY packages/server/package.json     packages/server/package.json
+COPY packages/web/package.json        packages/web/package.json
+RUN npm ci
+
+# ---- Stage 2: compile gate (typecheck + build the server) -----------------
+FROM deps AS build
+WORKDIR /app
+COPY . .
+# Hard gate: if the server does not typecheck/compile, the image build fails.
+RUN npm run typecheck -w @hr-os/server \
+ && npm run build -w @hr-os/server
+# Prune dev dependencies; keep production deps and the workspace symlinks.
+RUN npm prune --omit=dev
+
+# ---- Stage 3: slim, non-root runtime --------------------------------------
+FROM node:22-slim AS runtime
+ENV NODE_ENV=production \
+    PORT=8080 \
+    NPM_CONFIG_FUND=false \
+    NPM_CONFIG_AUDIT=false
+WORKDIR /app
+
+# tsx is the runtime executor (pinned). Installed before dropping privileges.
+RUN npm install -g tsx@4.16.2 && npm cache clean --force
+
+# Non-root principal.
+RUN groupadd --system --gid 10001 hros \
+ && useradd  --system --uid 10001 --gid hros --home /app --shell /usr/sbin/nologin hros
+
+# Pruned prod node_modules (with @hr-os/* workspace symlinks) + the backend source.
+COPY --from=build --chown=hros:hros /app/node_modules           ./node_modules
+COPY --from=build --chown=hros:hros /app/package.json           ./package.json
+COPY --from=build --chown=hros:hros /app/tsconfig.base.json     ./tsconfig.base.json
+COPY --from=build --chown=hros:hros /app/packages/contracts     ./packages/contracts
+COPY --from=build --chown=hros:hros /app/packages/core          ./packages/core
+COPY --from=build --chown=hros:hros /app/packages/connectors    ./packages/connectors
+COPY --from=build --chown=hros:hros /app/packages/server        ./packages/server
+COPY --from=build --chown=hros:hros /app/infra                  ./infra
+
+USER hros
+EXPOSE 8080
+
+# Liveness probe hitting the in-process health route (no external tools needed).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+# tsx resolves the .js import specifiers to the .ts workspace sources at runtime.
+CMD ["tsx", "packages/server/src/index.ts"]

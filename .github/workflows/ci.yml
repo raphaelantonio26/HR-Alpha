@@ -1,0 +1,64 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: "npm" }
+      - run: npm ci || npm install
+      - name: Typecheck (all workspaces)
+        run: npm run typecheck
+      - name: Unit tests (core engines)
+        run: npm run test:core
+      - name: Unit tests (server — OIDC, demo, rate limit)
+        run: npm run test -w @hr-os/server
+      - name: Web build
+        run: npm run build -w @hr-os/web
+      - name: Web a11y (axe)
+        run: npm run test -w @hr-os/web
+
+  db-security:
+    # Reproduces the RLS + append-only-audit gate against a real Postgres 16,
+    # exactly as run locally: migrate (idempotent) -> pgTAP as the NON-superuser
+    # app role -> synthetic seed. Uses the runner's apt (sudo) to add pgTAP.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: "npm" }
+      - run: npm ci || npm install
+      - name: Install PostgreSQL 16 + pgTAP
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-16-pgtap pgtap postgresql-client-16
+      - name: Start Postgres + create roles
+        run: |
+          sudo systemctl start postgresql || sudo service postgresql start
+          sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE hros SUPERUSER LOGIN PASSWORD 'hros';
+          CREATE ROLE hros_app NOSUPERUSER NOBYPASSRLS LOGIN PASSWORD 'hros_app';
+          CREATE DATABASE hros OWNER hros;
+          SQL
+          sudo -u postgres psql -d hros -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+          sudo -u postgres psql -d hros -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+      - name: Migrate (apply twice — must be idempotent)
+        env:
+          DATABASE_URL: postgresql://hros:hros@127.0.0.1:5432/hros
+        run: |
+          ./infra/migrate.sh
+          ./infra/migrate.sh
+      - name: pgTAP — RLS + append-only audit (as NON-superuser hros_app)
+        env:
+          PGPASSWORD: hros_app
+        run: pg_prove -d hros -h 127.0.0.1 -p 5432 -U hros_app packages/server/test/pgtap/rls_audit.sql
+      - name: Seed (synthetic; via withActor so RLS + audit apply)
+        env:
+          DATABASE_URL: postgresql://hros_app:hros_app@127.0.0.1:5432/hros
+        run: npm run seed
